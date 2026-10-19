@@ -18,9 +18,8 @@ __all__ = ["run"]
 
 
 def run(argv: list[str] | None = None) -> int:
-    """Convenience entry point: build the app, show the login window, run."""
-    from .app import build_app, show_login
+    """Convenience entry point: build the app, show the main window, run."""
+    from .app import launch
 
-    app, window = build_app(argv)
-    show_login(window)
+    app, _win, _holder = launch()
     return app.exec()

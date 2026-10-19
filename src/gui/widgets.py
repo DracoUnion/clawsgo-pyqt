@@ -222,7 +222,7 @@ class EmptyState(Card):
 
 
 # --------------------------------------------------------------------------
-# Simple form (label on top, widget below) — used by Login & dialogs
+# Simple form (label on top, widget below)
 # --------------------------------------------------------------------------
 def field(label_text: str, widget: QWidget) -> QWidget:
     wrap = QWidget()

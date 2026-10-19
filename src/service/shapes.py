@@ -366,20 +366,6 @@ def announcement_row(db, a):
     }
 
 
-def device_row(db, d):
-    return {
-        "id": d.id,
-        "userId": d.userId,
-        "name": d.name,
-        "platform": d.platform,
-        "appVersion": d.appVersion,
-        "status": "revoked" if d.revokedAt else (d.status or "active"),
-        "lastSeenAt": d.lastSeenAt,
-        "createdAt": d.createdAt,
-        "revokedAt": d.revokedAt,
-    }
-
-
 def invite_code_row(db, c):
     return {
         "id": c.id,
@@ -479,17 +465,4 @@ def message_row(db, msg):
         "streamId": msg.streamId,
         "metadata": msg.meta,
         "createdAt": msg.createdAt,
-    }
-
-
-def agent_memory_row(db, am):
-    return {
-        "id": am.id,
-        "teamId": am.teamId,
-        "userId": am.userId,
-        "scope": am.scope or "global",
-        "key": am.key,
-        "content": am.content,
-        "createdAt": am.createdAt,
-        "updatedAt": am.updatedAt,
     }

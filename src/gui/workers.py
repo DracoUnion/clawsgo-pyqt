@@ -5,7 +5,7 @@ Every backend call happens off the GUI thread so the UI never freezes.
 Two patterns, both standard Qt and deliberately unmagical:
 
 * ``FuncTask`` (``QThreadPool`` + ``QRunnable`` + signals) — one-shot calls
-  (login, a single RPC).
+  (a single RPC).
 * ``PollEventsWorker`` (a ``QThread`` whose ``run`` loops) — long-lived event
   polling for the Chat view, emitting each polled payload on ``progress``.
 """

@@ -45,8 +45,6 @@ class AdminView(PageView):
 
     def _make_tabs(self) -> None:
         for key, label, rows in [
-            ("users", "用户", ["query", "role", "banned"]),
-            ("teams", "团队", ["query"]),
             ("orders", "订单", ["status"]),
             ("invoices", "发票", ["status"]),
             ("codes", "兑换码", ["batch"]),
@@ -59,8 +57,6 @@ class AdminView(PageView):
     def _build_tab(self, key, label):
         holder = _Tab()
         btn_labels = {
-            "users": ["封号", "解封", "设为管理员", "设为用户", "充值额度", "授予套餐"],
-            "teams": ["查看成员"],
             "orders": ["同步订单"],
             "invoices": ["开具", "驳回"],
             "codes": ["生成兑换码", "作废"],
@@ -77,7 +73,7 @@ class AdminView(PageView):
         self.set_busy(True)
         self.call("getOverview", {}, self._on_stats, self._soft_error)
         idx = self._tabs_widget.currentIndex()
-        key = ["users", "teams", "orders", "invoices", "codes", "tickets"][idx]
+        key = ["orders", "invoices", "codes", "tickets"][idx]
         self._load_tab(self._tabs[key], key)
 
     def _on_stats(self, payload) -> None:
@@ -124,29 +120,7 @@ class AdminView(PageView):
         if not row:
             self.notice("warn", "请先选择一行")
             return
-        if key == "users":
-            uid = row.get("userId") or row.get("id")
-            if act in ("封号", "解封"):
-                self.call("banUser" if act == "封号" else "unbanUser",
-                          {"userId": uid, "reason": "管理员操作"},
-                          lambda _p: self._reload(key), self._on_error)
-            elif act in ("设为管理员", "设为用户"):
-                self.call("setUserRole",
-                          {"userId": uid, "role": "admin" if act == "设为管理员" else "user"},
-                          lambda _p: self._reload(key), self._on_error)
-            elif act == "充值额度":
-                v = ask(self, "充值额度", [("credits", "额度", "int", 1000)])
-                if v:
-                    self.call("adminTopupCredits", {"userId": uid, "credits": v["credits"]},
-                              lambda _p: self._reload(key), self._on_error)
-            elif act == "授予套餐":
-                v = ask(self, "授予套餐",
-                        [("teamId", "团队ID", "text", row.get("id") or ""),
-                         ("planId", "套餐", "combo", "pro", ["free", "plus", "pro", "ultra", "team", "enterprise"]),
-                         ("months", "月数", "int", 1)])
-                if v:
-                    self.call("adminGrantPlan", v, lambda _p: self._reload(key), self._on_error)
-        elif key == "tickets":
+        if key == "tickets":
             tid = row.get("id")
             if act == "回复":
                 v = ask(self, "回复工单", [("body", "内容", "multiline", "")])
@@ -183,8 +157,6 @@ class AdminView(PageView):
 
 def _admin_list_cmd(key) -> str:
     return {
-        "users": "adminGetUsers",
-        "teams": "adminGetTeams",
         "orders": "adminGetPaymentOrders",
         "invoices": "adminGetInvoices",
         "codes": "adminGetRedeemCodes",
@@ -194,11 +166,6 @@ def _admin_list_cmd(key) -> str:
 
 def _row_label(key, r):
     r = r or {}
-    if key == "users":
-        return (f"{r.get('name')} · {r.get('phone')} · {r.get('role')} · "
-                f"{'封禁' if r.get('banned') else '正常'} · {r.get('plan')}")
-    if key == "teams":
-        return f"{r.get('name')} · {r.get('plan')} · {r.get('memberCount')} 人 · {r.get('ownerName')}"
     if key == "orders":
         return (f"{r.get('orderNo')} · ¥{r.get('amountCents', 0) / 100:.2f} · "
                 f"{r.get('status')} · {r.get('userName')}")

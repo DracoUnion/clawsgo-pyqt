@@ -6,8 +6,9 @@ import tempfile
 from pathlib import Path
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+SRC = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(SRC))
 from service import Backend, command_names  # noqa: E402
 
 
@@ -26,28 +27,26 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(set(command_names()), expected)
         self.assertEqual(len(command_names()), 266)
 
-    def test_demo_auth_and_chat(self):
+    def test_boot_profile_and_chat(self):
         backend = _fresh()
-        result = backend.login_password('13800000000', 'clawsgo2026')
-        self.assertEqual(result['user']['id'], 'u_demo')
+        profile = backend.current_user()
+        self.assertEqual(profile['role'], 'super_admin')
         conversations = backend.call('getConversations', {})
         self.assertTrue(conversations['conversations'])
         sent = backend.call('sendMessage', {'conversationId': 'c_demo', 'text': 'hello'})
         self.assertEqual(sent['assistantMessage']['role'], 'assistant')
         self.assertTrue(sent['assistantMessage']['parts'])
 
-    def test_admin_login(self):
+    def test_admin_profile(self):
         backend = _fresh()
-        result = backend.login_password('13900000000', 'clawsgo2026')
-        self.assertEqual(result['user']['role'], 'super_admin')
-        self.assertIn('items', backend.call('adminGetUsers', {}))
+        self.assertEqual(backend.current_user()['role'], 'super_admin')
+        self.assertIn('items', backend.call('adminGetPaymentOrders', {}))
 
     # ------------------------------------------------------------------
     # domain coverage
     # ------------------------------------------------------------------
     def test_skills(self):
         b = _fresh()
-        b.login_password('13800000000', 'clawsgo2026')
         rows = b.call('getSkills', {})['skills']
         self.assertGreaterEqual(len(rows), 12)
         slug = rows[0]['slug']
@@ -61,7 +60,6 @@ class BackendSmokeTests(unittest.TestCase):
 
     def test_hosts(self):
         b = _fresh()
-        b.login_password('13800000000', 'clawsgo2026')
         created = b.call('createHost', {'kind': 'cloud', 'name': 't1', 'cpu': 4,
                                         'memoryGb': 8, 'diskGb': 100})['host']
         self.assertEqual(created['status'], 'running')
@@ -77,7 +75,6 @@ class BackendSmokeTests(unittest.TestCase):
 
     def test_teams(self):
         b = _fresh()
-        b.login_password('13800000000', 'clawsgo2026')
         t = b.call('createTeam', {'name': '测试团队'})['team']
         self.assertEqual(t['role'], 'owner')
         inv = b.call('createTeamInvitation', {'teamId': t['id'], 'email': 'x@y.z'})['invitation']
@@ -86,7 +83,6 @@ class BackendSmokeTests(unittest.TestCase):
 
     def test_billing(self):
         b = _fresh()
-        b.login_password('13800000000', 'clawsgo2026')
         sub = b.call('getSubscription', {})['subscription']
         self.assertEqual(sub['planId'], 'pro')
         self.assertEqual(len(b.call('getPlans', {})['plans']), 6)
@@ -100,31 +96,16 @@ class BackendSmokeTests(unittest.TestCase):
 
     def test_tickets(self):
         b = _fresh()
-        b.login_password('13800000000', 'clawsgo2026')
         t = b.call('createTicket', {'subject': '测试', 'body': '内容'})['ticket']
         self.assertEqual(t['status'], 'open')
         replied = b.call('replyTicket', {'id': t['id'], 'body': '追问'})['ticket']
-        self.assertGreater(replied['unreadForAdmin'], 0)
-        self.assertEqual(b.call('getTicket', {'id': t['id']})['unreadCount'], 0)
+        self.assertEqual(replied['unreadForUser'], 1)
+        self.assertEqual(b.call('getTicket', {'id': t['id']})['unreadCount'], 1)
 
     def test_admin_actions(self):
         b = _fresh()
-        b.login_password('13900000000', 'clawsgo2026')
-        self.assertEqual(b.call('adminTopupCredits', {'teamId': 'u_demo', 'credits': 500})['balance'], 5320)
-        self.assertEqual(b.call('adminGrantPlan', {'teamId': 'u_demo', 'planId': 'ultra',
-                                                   'months': 1})['subscription']['planId'], 'ultra')
-        banned = b.call('banUser', {'userId': 'u_demo', 'reason': 'test'})['user']
-        self.assertTrue(banned['banned'])
-        self.assertFalse(b.call('unbanUser', {'userId': 'u_demo'})['user']['banned'])
         self.assertEqual(b.call('adminCloseTicket', {'id': 't_ssh_offline'})['status'], 'closed')
         self.assertIn('codes', b.call('adminCreateRedeemCodes', {'count': 2, 'credits': 100}))
-
-    def test_admin_gate(self):
-        b = _fresh()
-        b.login_password('13800000000', 'clawsgo2026')
-        from service.errors import ApiError
-        with self.assertRaises(ApiError):
-            b.call('adminGetUsers', {})
 
 
 if __name__ == '__main__':

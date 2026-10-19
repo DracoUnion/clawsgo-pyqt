@@ -13,8 +13,9 @@ dependencies = ["PySide6>=6.5", "sqlalchemy>=2.0"]
 clawsgo-standalone = "main:main"
 
 [tool.setuptools]
-package-dir = {"" = "."}
+package-dir = {"" = "src"}
+py-modules = ["main"]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["service*", "gui*"]

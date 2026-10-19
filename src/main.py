@@ -8,7 +8,7 @@ from gui.app import launch
 
 
 def main() -> int:
-    app, _login, _holder = launch()
+    app, _win, _holder = launch()
     return app.exec()
 
 

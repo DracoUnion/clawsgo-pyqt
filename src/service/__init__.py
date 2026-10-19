@@ -4,6 +4,10 @@ The PySide6 application calls this service in-process. No HTTP server is
 started and no HTTP client is used. State is persisted in SQLite via
 SQLAlchemy (see :mod:`service.models`). The module remains importable
 without Qt so the service can be smoke-tested headlessly.
+
+There is no login step: the embedded backend boots straight into the default
+admin identity (see :meth:`service.core.Backend._activate_admin`), so the
+shell always runs with the same active profile.
 """
 from __future__ import annotations
 
@@ -25,10 +29,6 @@ from .errors import (
     req,
     unauthorized,
 )
-
-DEMO_PHONE = "13800000000"
-DEMO_PASSWORD = "clawsgo2026"
-ADMIN_PHONE = "13900000000"
 
 
 class BackendError(Exception):
@@ -57,26 +57,13 @@ class ServiceFacade:
 
     @property
     def user(self) -> dict | None:
+        """The active (boot-time admin) profile, memoized on first access."""
+        if self._user is None:
+            try:
+                self._user = self._backend.current_user()
+            except Exception:
+                self._user = {}
         return self._user
-
-    def login_password(self, phone: str, password: str) -> dict:
-        try:
-            result = self._backend.login_password(phone, password)
-        except ValueError as e:
-            raise BackendError("INVALID_PHONE_NUMBER_OR_PASSWORD", str(e), 400) from e
-        self._user = (result or {}).get("user")
-        return result
-
-    def request_otp(self, phone: str) -> dict:
-        return self._backend.request_otp(phone)
-
-    def login_otp(self, phone: str, code: str) -> dict:
-        try:
-            result = self._backend.login_otp(phone, code)
-        except ValueError as e:
-            raise BackendError("INVALID_OTP", str(e), 400) from e
-        self._user = (result or {}).get("user")
-        return result
 
     def call(self, command: str, data: dict | None = None) -> dict:
         try:
@@ -103,9 +90,6 @@ __all__ = [
     "command_names",
     "commandNames",
     "dispatch",
-    "DEMO_PHONE",
-    "DEMO_PASSWORD",
-    "ADMIN_PHONE",
     "badRequest",
     "conflict",
     "fail",

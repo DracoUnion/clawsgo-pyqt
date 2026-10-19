@@ -15,7 +15,7 @@ from sqlalchemy import Column, Integer, String, Text, Boolean
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import JSON
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = Path(os.environ.get("CLAWSGO_DATA_DIR", ROOT / "data"))
 DATA.mkdir(parents=True, exist_ok=True)
 DB_URL = f"sqlite:///{DATA / 'backend.db'}"  # for create_engine
@@ -312,21 +312,6 @@ class Project(Base):
     pinnedAt = Column(String(40), nullable=True)
 
 
-class Device(Base):
-    __tablename__ = "devices"
-
-    id = Column(String(64), primary_key=True)
-    userId = Column(String(64), index=True)
-    name = Column(String(128))
-    platform = Column(String(16), default="web")
-    appVersion = Column(String(16), nullable=True)
-    status = Column(String(16), default="active")
-    workspaceRoot = Column(String(256), nullable=True)
-    lastSeenAt = Column(String(40))
-    createdAt = Column(String(40))
-    revokedAt = Column(String(40), nullable=True)
-
-
 class Announcement(Base):
     __tablename__ = "announcements"
 
@@ -368,19 +353,6 @@ class RedeemCode(Base):
     usedAt = Column(String(40), nullable=True)
     disabled = Column(Boolean, default=False)
     createdAt = Column(String(40))
-
-
-class AgentMemory(Base):
-    __tablename__ = "agent_memory"
-
-    id = Column(String(64), primary_key=True)
-    teamId = Column(String(64), index=True)
-    userId = Column(String(64), index=True)
-    scope = Column(String(32), default="global")
-    key = Column(String(128))
-    content = Column(Text)
-    createdAt = Column(String(40))
-    updatedAt = Column(String(40))
 
 
 class Folder(Base):

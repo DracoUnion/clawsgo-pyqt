@@ -164,21 +164,12 @@ def seed(db) -> None:
         title="演示实验室", taxNo="", type="normal", status="issued", email="demo@clawsgo.local",
         invoiceNo="INV2026DEMO001", createdAt=_ago(29 * 864e5), issuedAt=_ago(28 * 864e5),
     ))
-    db.add(m.Device(
-        id="dev_1", userId="u_demo", name="Windows 11 Desktop", platform="win32",
-        appVersion="1.0.0", status="active", lastSeenAt=_ago(4 * 60e3), createdAt=_ago(20 * 864e5), revokedAt=None,
-    ))
     db.add_all([
         m.AuditLog(id="al_1", actorId="u_admin", actorName="平台管理员", action="admin.grantPlan", target="u_demo",
                    detail="授予 pro 套餐", ip="127.0.0.1", createdAt=_ago(29 * 864e5)),
         m.AuditLog(id="al_2", actorId="u_demo", actorName="演示用户", action="auth.signIn", target="u_demo",
                    detail="手机号密码登录", ip="127.0.0.1", createdAt=_ago(2 * 3600e3)),
     ])
-    db.add(m.AgentMemory(
-        id="am_1", teamId="u_demo", userId="u_demo", scope="global", key="report-format",
-        content="产出实验报告时优先给出「结论 → 证据 → 复现步骤」三段式，图表统一 300dpi。",
-        createdAt=_ago(18 * 864e5), updatedAt=_ago(18 * 864e5),
-    ))
     db.add(m.Counter(key="ticket", value=1002))
 
 

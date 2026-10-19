@@ -1,9 +1,8 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication,QDialog,QHBoxLayout,QLabel,QMainWindow,QPushButton,QStackedWidget,QVBoxLayout,QWidget
+from PySide6.QtWidgets import QApplication,QHBoxLayout,QLabel,QMainWindow,QPushButton,QStackedWidget,QVBoxLayout,QWidget
 from . import theme
 from service import ServiceFacade as EmbeddedFacade
-from .login import LoginWindow
 from .views.home import HomeView
 from .views.chat import ChatView
 from .views.skills import SkillsView
@@ -46,10 +45,8 @@ class MainWindow(QMainWindow):
         if w is not None: self.stack.setCurrentWidget(w); getattr(w,'on_show',lambda:None)()
 
 def launch():
-    app=QApplication.instance() or QApplication([]); theme.apply_theme(app); facade=EmbeddedFacade(); login=LoginWindow(facade); holder={}
-    def ok(user):
-        login.close(); win=MainWindow(facade,user); holder['win']=win; win.show()
-    login.login_ok.connect(ok); login.show(); return app,login,holder
+    app=QApplication.instance() or QApplication([]); theme.apply_theme(app); facade=EmbeddedFacade(); holder={}
+    user=facade.user or {'role':'super_admin','name':'平台管理员'}; win=MainWindow(facade,user); holder['win']=win; win.show(); return app,win,holder
 
 if __name__=='__main__':
     app,_,_=launch(); raise SystemExit(app.exec())

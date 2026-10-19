@@ -26,12 +26,9 @@ from .errors import ApiError, badRequest, conflict, forbidden, need, notFound, r
 from .models import create_all
 from .seed import seed as _seed_all
 
-ROOT = Path(__file__).resolve().parent.parent  # repo root
+ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 DATA = Path(os.environ.get("CLAWSGO_DATA_DIR", ROOT / "data"))
 DATA.mkdir(parents=True, exist_ok=True)
-PHONE = "13800000000"
-ADMIN_PHONE = "13900000000"
-PASSWORD = "clawsgo2026"
 
 
 def now():
@@ -105,10 +102,10 @@ class Backend:
         )
         create_all(self._engine)
         self._Session = sessionmaker(bind=self._engine, autoflush=True)
-        self.user = None  # {'id','role','name','phone','plan'} after login
+        self.user = None  # active identity (auto-activated as admin on boot)
         self.token = None
-        self._otp = {}
         self._seed_if_empty()
+        self._activate_admin()
 
     # ------------------------------------------------------------------ db
     def _seed_if_empty(self):
@@ -116,6 +113,24 @@ class Backend:
             if db.query(m.User).count() == 0:
                 _seed_all(db)
                 db.commit()
+
+    def _activate_admin(self):
+        """Boot the service directly into the admin identity (no login)."""
+        with self.lock, self._Session() as db:
+            u = db.query(m.User).filter_by(role="super_admin").first()
+            if u is None:
+                u = db.query(m.User).first()
+            if u is None:
+                return
+            self.user = {"id": u.id, "role": u.role, "name": u.name,
+                         "phone": u.phone, "plan": u.plan}
+            self.token = "cgt_" + uuid.uuid4().hex
+            db.commit()
+
+    def current_user(self) -> dict:
+        """Profile dict of the active (default admin) user."""
+        with self.lock, self._Session() as db:
+            return S.profile_row(db, self._user(db))
 
     def _user(self, db):
         if not self.user:
@@ -189,30 +204,6 @@ class Backend:
             db.flush()
         return c
 
-    # ------------------------------------------------------------------ auth
-    def login_password(self, phone, password):
-        with self.lock, self._Session() as db:
-            u = db.query(m.User).filter_by(phone=phone).first()
-            if u is None or u.password != password:
-                raise ValueError("手机号或密码不正确")
-            self.user = {"id": u.id, "role": u.role, "name": u.name,
-                         "phone": u.phone, "plan": u.plan}
-            self.token = "cgt_" + uuid.uuid4().hex
-            self._audit(db, "auth.signIn", u.id, "手机号密码登录")
-            db.commit()
-            return {"user": S.profile_row(db, u), "token": self.token}
-
-    def request_otp(self, phone):
-        with self.lock, self._Session() as db:
-            self._otp[phone] = "123456"
-            db.commit()
-            return {"requestId": rid("otp"), "devCode": "123456"}
-
-    def login_otp(self, phone, code):
-        if len(str(code)) != 6:
-            raise ValueError("验证码不正确")
-        return self.login_password(phone, PASSWORD)
-
     # ------------------------------------------------------------------ call
     def call(self, cmd, data=None):
         data = data or {}
@@ -255,24 +246,11 @@ def _cmd(*names):
 
 
 # ===========================================================================
-# account domain
+# identity (single boot-time admin profile — no account system)
 # ===========================================================================
 @_cmd("getProfile")
 def c_get_profile(self, db, data):
     return {"profile": S.profile_row(db, self._user(db))}
-
-
-@_cmd("updateProfile")
-def c_update_profile(self, db, data):
-    u = self._user(db)
-    for k in ("name", "email", "avatarUrl", "locale", "theme"):
-        if k in data and data[k] is not None:
-            setattr(u, k, data[k])
-    if data.get("onboarded"):
-        u.onboardedAt = now()
-    elif data.get("onboarded") is False:
-        u.onboardedAt = None
-    return {"profile": S.profile_row(db, u)}
 
 
 @_cmd("getOverview")
@@ -348,33 +326,6 @@ def c_get_credit_ledger(self, db, data):
     total = len(rows)
     rows = rows[_offset(data): _offset(data) + _limit(data, 20, 200)]
     return _listout("entries", [S.credit_ledger_row(db, r) for r in rows], total, data, 20, 200)
-
-
-@_cmd("getDevices")
-def c_get_devices(self, db, data):
-    u = self._user(db)
-    rows = [d for d in db.query(m.Device).filter_by(userId=u.id).all() if not d.revokedAt]
-    return _listout("devices", [S.device_row(db, d) for d in rows], len(rows), data)
-
-
-@_cmd("getActivities")
-def c_get_activities(self, db, data):
-    u = self._user(db)
-    rows = [a for a in db.query(m.AuditLog).filter_by(actorId=u.id).order_by(
-        m.AuditLog.createdAt.desc()).all()]
-    total = len(rows)
-    rows = rows[_offset(data): _offset(data) + _limit(data, 20, 100)]
-    act = [{"id": a.id, "action": a.action, "detail": a.detail or "",
-            "createdAt": a.createdAt} for a in rows]
-    return {"activities": act, "items": act, "total": total,
-            "limit": _limit(data, 20, 100), "offset": _offset(data)}
-
-
-@_cmd("getUsers")
-def c_get_users(self, db, data):
-    rows = db.query(m.User).order_by(m.User.createdAt.desc()).all()
-    users = [S.user_row(u) for u in rows]
-    return _listout("users", users, len(users), data)
 
 
 @_cmd("getProjects")
@@ -455,58 +406,6 @@ def c_clone_project(self, db, data):
                   archivedAt=None, pinnedAt=None)
     db.add(p)
     return {"project": S.project_row(db, p, self.user["id"])}
-
-
-@_cmd("listAgentMemory")
-def c_list_agent_memory(self, db, data):
-    u = self._user(db)
-    rows = db.query(m.AgentMemory).filter_by(userId=u.id).all()
-    items = [S.agent_memory_row(db, r) for r in rows]
-    return {"items": items, "entries": items, "total": len(items),
-            "file": {"exists": False, "content": "", "scope": data.get("scope", "global"),
-                     "path": "AGENTS.md", "updatedAt": None},
-            "exists": False, "content": ""}
-
-
-@_cmd("createAgentMemory")
-def c_create_agent_memory(self, db, data):
-    u = self._user(db)
-    am = m.AgentMemory(id=rid("am"), teamId=self._ctx_team(db, data) or "", userId=u.id,
-                       scope=data.get("scope", "global"),
-                       key=data.get("key") or data.get("title") or "memory",
-                       content=data.get("content", ""), createdAt=now(), updatedAt=now())
-    db.add(am)
-    item = S.agent_memory_row(db, am)
-    return {"item": item, **item}
-
-
-@_cmd("updateAgentMemory")
-def c_update_agent_memory(self, db, data):
-    am = db.get(m.AgentMemory, req(data, "id"))
-    if am is None:
-        raise notFound("记忆条目")
-    if data.get("key") is not None:
-        am.key = data["key"]
-    if data.get("content") is not None:
-        am.content = data["content"]
-    am.updatedAt = now()
-    return {"item": S.agent_memory_row(db, am)}
-
-
-@_cmd("deleteAgentMemory")
-def c_delete_agent_memory(self, db, data):
-    am = db.get(m.AgentMemory, req(data, "id"))
-    if am:
-        db.delete(am)
-    return {"ok": True, "id": data.get("id")}
-
-
-@_cmd("getLinkPreview")
-def c_get_link_preview(self, db, data):
-    url = req(data, "url")
-    return {"preview": {"url": url, "title": url, "description": None, "image": None,
-                        "siteName": None, "favicon": None, "fetched": False,
-                        "error": "offline"}}
 
 
 # ===========================================================================
@@ -1889,75 +1788,6 @@ def c_admin_tickets(self, db, data):
 # ===========================================================================
 # admin domain
 # ===========================================================================
-@_cmd("adminGetUsers", "adminGetUserDetail")
-def c_admin_get_users(self, db, data):
-    self._admin_only(db)
-    query = (data.get("query") or "").strip().lower()
-    rows = db.query(m.User).all()
-    if query:
-        rows = [u for u in rows if query in (u.name or "").lower() or query in (u.phone or "")
-                or query in (u.email or "").lower() or query in (u.id or "").lower()]
-    if data.get("role"):
-        rows = [u for u in rows if u.role == data["role"]]
-    if data.get("banned") is not None:
-        rows = [u for u in rows if u.banned == bool(data["banned"])]
-    rows.sort(key=lambda u: u.createdAt or "", reverse=True)
-    total = len(rows)
-    page = rows[_offset(data): _offset(data) + _limit(data, 20, 200)]
-    users = []
-    for u in page:
-        row = S.user_row(u)
-        row["plan"] = u.plan or "free"
-        row["teams"] = db.query(m.TeamMember).filter_by(userId=u.id).count()
-        row["conversations"] = db.query(m.Conversation).filter_by(userId=u.id).count()
-        last = db.query(m.Conversation).filter_by(userId=u.id).first()
-        row["lastActiveAt"] = last.lastMessageAt if last else u.createdAt
-        users.append(row)
-    return _listout("users", users, total, data, 20, 200)
-
-
-@_cmd("adminGetTeams", "adminGetTeamDetail", "adminGetTeamMembers", "adminGetTeamHosts")
-def c_admin_get_teams(self, db, data):
-    self._admin_only(db)
-    if data.get("teamId"):
-        team = db.get(m.Team, data["teamId"])
-        if team is None:
-            raise notFound("团队")
-        owner = db.get(m.User, team.ownerId)
-        members = [S.team_member_row(db, mm) for mm in db.query(m.TeamMember).filter_by(teamId=team.id).all()]
-        hosts = [S.host_row(db, h) for h in db.query(m.Host).filter_by(teamId=team.id).all()]
-        detail = {"ownerName": owner.name if owner else "", "memberCount": len(members),
-                  "conversations": db.query(m.Conversation).filter_by(teamId=team.id).count(),
-                  "projects": db.query(m.Project).filter_by(teamId=team.id).count(),
-                  "hosts": len(hosts), "storageUsedGb": 0,
-                  "creditsSpent": 100, "paidCents": 2990,
-                  "tickets": db.query(m.Ticket).filter_by(teamId=team.id).count(),
-                  "createdAt": team.createdAt}
-        row = S.team_row(db, team, self.user["id"])
-        return {"team": row, "detail": detail, "subscription": S.subscription_row(db, _subscription_for(self, db, team.id)),
-                "balance": team.creditBalance or 0}
-    query = (data.get("query") or "").strip().lower()
-    rows = db.query(m.Team).all()
-    if query:
-        rows = [t for t in rows if query in (t.name or "").lower() or query in t.id.lower()]
-    rows.sort(key=lambda t: t.createdAt or "", reverse=True)
-    total = len(rows)
-    page = rows[_offset(data): _offset(data) + _limit(data, 20, 200)]
-    teams = []
-    for t in page:
-        owner = db.get(m.User, t.ownerId)
-        members = db.query(m.TeamMember).filter_by(teamId=t.id).count()
-        sub = db.query(m.Subscription).filter_by(teamId=t.id).first()
-        row = S.team_row(db, t, self.user["id"])
-        row["ownerName"] = owner.name if owner else ""
-        row["memberCount"] = members
-        row["conversations"] = db.query(m.Conversation).filter_by(teamId=t.id).count()
-        row["hosts"] = db.query(m.Host).filter_by(teamId=t.id).count()
-        row["plan"] = (sub.planId or sub.plan) if sub else (t.plan or "free")
-        teams.append(row)
-    return _listout("teams", teams, total, data, 20, 200)
-
-
 @_cmd("adminGetPaymentOrders")
 def c_admin_get_payment_orders(self, db, data):
     self._admin_only(db)
@@ -2031,53 +1861,6 @@ def c_admin_redeem_codes(self, db, data):
     return {"codes": rows, "items": rows, "total": len(rows),
             "redeemCodes": rows, "batches": batches,
             "limit": _limit(data, 20, 200), "offset": _offset(data)}
-
-
-@_cmd("adminTopupCredits", "adminGrantPlan", "setUserRole", "updateUserRoles", "banUser", "unbanUser")
-def c_admin_user_actions(self, db, data):
-    self._admin_only(db)
-    # infer action from payload shape
-    user_id = data.get("userId") or data.get("id")
-    if user_id and (data.get("credits") is not None or data.get("amount") is not None
-                    or data.get("role") is not None or data.get("banned") is not None
-                    or data.get("ban") is not None or data.get("reason") is not None
-                    or data.get("unban") is not None):
-        u = db.get(m.User, user_id)
-        if u is None:
-            raise notFound("用户")
-        roles = data.get("roles")
-        if roles:
-            u.roles = roles
-            u.role = "super_admin" if "super_admin" in roles else roles[0]
-        if data.get("role"):
-            role = data["role"]
-            if role not in ("user", "admin", "super_admin"):
-                raise badRequest("非法角色")
-            if u.role == "super_admin" and self.user["id"] != u.id:
-                raise badRequest("不能修改超级管理员")
-            u.role = role
-        if data.get("banned") is True or data.get("ban") is True:
-            u.banned = True
-            u.banReason = data.get("reason")
-        if data.get("banned") is False or data.get("unban") is True:
-            u.banned = False
-            u.banReason = None
-        return {"ok": True, "user": S.user_row(u)}
-    team_id = data.get("teamId") or data.get("userId") or user_id
-    if data.get("planId") and team_id:
-        sub = _grant_plan(self, db, team_id, data["planId"], int(data.get("months") or 1))
-        return {"ok": True, "subscription": S.subscription_row(db, sub)}
-    if data.get("credits") is not None and team_id:
-        team = db.get(m.Team, team_id)
-        if team is None:
-            raise notFound("团队")
-        amount = int(data.get("credits") or data.get("amount") or 0)
-        team.creditBalance = (team.creditBalance or 0) + amount
-        db.add(m.CreditLedger(id=rid("cl"), teamId=team_id, userId=self.user["id"],
-                              delta=amount, reason="topup", balanceAfter=team.creditBalance,
-                              note=data.get("note") or "后台充值", createdAt=now()))
-        return {"ok": True, "balance": team.creditBalance}
-    raise badRequest("参数不完整")
 
 
 @_cmd("adminGetAnnouncements", "adminCreateAnnouncement", "adminUpdateAnnouncement", "adminDeleteAnnouncement")
@@ -2217,129 +2000,11 @@ def _admin_reply_ticket(self, db, data):
     return {"ok": True, "ticket": S.ticket_row(db, t)}
 
 
-def _admin_user_detail(self, db, data):
-    self._admin_only(db)
-    uid = data.get("userId") or data.get("id")
-    u = db.get(m.User, uid) if uid else None
-    if u is None:
-        raise notFound("用户")
-    mems = db.query(m.TeamMember).filter_by(userId=u.id).all()
-    teams = []
-    for mm in mems:
-        t = db.get(m.Team, mm.teamId)
-        if t:
-            row = S.team_row(db, t, u.id)
-            row["role"] = mm.role
-            row["memberId"] = mm.id
-            teams.append(row)
-    hosts = [S.host_row(db, h) for h in db.query(m.Host).filter_by(userId=u.id).all()]
-    convs = db.query(m.Conversation).filter_by(userId=u.id).all()
-    msgs = sum(db.query(m.Message).filter_by(conversationId=c.id).count() for c in convs)
-    orders = db.query(m.PaymentOrder).filter_by(userId=u.id).all()
-    balance = (S.personal_team_for(db, u.id).creditBalance if S.personal_team_for(db, u.id) else 0)
-    stats = {"teams": len(teams), "hosts": len(hosts), "conversations": len(convs),
-             "messages": msgs, "creditsSpent": 0,
-             "paidCents": sum(o.amountCents or 0 for o in orders if o.status == "paid"),
-             "tickets": db.query(m.Ticket).filter_by(userId=u.id).count(),
-             "devices": db.query(m.Device).filter_by(userId=u.id).count()}
-    prof = S.profile_row(db, u)
-    return {"user": S.user_row(u), "profile": prof, "teams": teams, "hosts": hosts,
-            "subscription": S.subscription_row(db, _subscription_for(self, db, u.id)),
-            "stats": stats, "balance": balance, "detail": {"teams": teams, "conversations": convs}}
-
-
-def _admin_team_members(self, db, data):
-    self._admin_only(db)
-    tid = req(data, "teamId")
-    rows = db.query(m.TeamMember).filter_by(teamId=tid).all()
-    members = [S.team_member_row(db, mm) for mm in rows]
-    return _listout("members", members, len(members), data)
-
-
-def _admin_team_hosts(self, db, data):
-    self._admin_only(db)
-    tid = req(data, "teamId")
-    rows = db.query(m.Host).filter_by(teamId=tid).all()
-    hosts = [S.host_row(db, h) for h in rows]
-    return _listout("hosts", hosts, len(hosts), data)
-
-
 COMMANDS["adminGetTicket"] = _admin_ticket_detail
 COMMANDS["adminGetTicketStats"] = _admin_ticket_stats
 COMMANDS["adminCloseTicket"] = _admin_close_ticket
 COMMANDS["adminDeleteTicket"] = _admin_delete_ticket
 COMMANDS["adminReplyTicket"] = _admin_reply_ticket
-COMMANDS["adminGetUserDetail"] = _admin_user_detail
-COMMANDS["adminGetTeamMembers"] = _admin_team_members
-COMMANDS["adminGetTeamHosts"] = _admin_team_hosts
-
-
-def _admin_set_role(self, db, data):
-    self._admin_only(db)
-    u = db.get(m.User, req(data, "userId"))
-    if u is None:
-        raise notFound("用户")
-    role = req(data, "role")
-    if role not in ("user", "admin", "super_admin"):
-        raise badRequest("非法角色")
-    if u.role == "super_admin" and self.user["id"] != u.id:
-        raise badRequest("不能修改超级管理员")
-    u.role = role
-    return {"ok": True, "user": S.user_row(u)}
-
-
-def _admin_set_roles(self, db, data):
-    self._admin_only(db)
-    u = db.get(m.User, req(data, "userId"))
-    if u is None:
-        raise notFound("用户")
-    roles = data.get("roles") or []
-    if not isinstance(roles, list) or not roles:
-        raise badRequest("角色列表不能为空")
-    u.role = "super_admin" if "super_admin" in roles else roles[0]
-    return {"ok": True, "userId": u.id, "roles": roles, "role": u.role}
-
-
-def _admin_ban(self, db, data, banned=True):
-    self._admin_only(db)
-    u = db.get(m.User, data.get("userId") or data.get("id"))
-    if u is None:
-        raise notFound("用户")
-    u.banned = banned
-    u.banReason = (data.get("reason") if banned else None)
-    return {"ok": True, "user": S.user_row(u)}
-
-
-def _admin_topup(self, db, data):
-    self._admin_only(db)
-    team_id = data.get("teamId") or data.get("userId")
-    team = db.get(m.Team, team_id)
-    if team is None:
-        raise notFound("团队")
-    amount = int(data.get("credits") if data.get("credits") is not None else (data.get("amount") or 0))
-    team.creditBalance = (team.creditBalance or 0) + amount
-    db.add(m.CreditLedger(id=rid("cl"), teamId=team.id, userId=self.user["id"],
-                          delta=amount, reason="topup", balanceAfter=team.creditBalance,
-                          note=data.get("note") or "后台充值", createdAt=now()))
-    return {"ok": True, "balance": team.creditBalance}
-
-
-def _admin_grant_plan(self, db, data):
-    self._admin_only(db)
-    team_id = req(data, "teamId")
-    plan_id = req(data, "planId")
-    if plan_id not in P.PLANS:
-        raise badRequest("未知套餐", "INVALID_PLAN")
-    sub = _grant_plan(self, db, team_id, plan_id, int(data.get("months") or 1))
-    return {"ok": True, "subscription": S.subscription_row(db, sub)}
-
-
-COMMANDS["setUserRole"] = _admin_set_role
-COMMANDS["updateUserRoles"] = _admin_set_roles
-COMMANDS["banUser"] = lambda self, db, data: _admin_ban(self, db, data, True)
-COMMANDS["unbanUser"] = lambda self, db, data: _admin_ban(self, db, data, False)
-COMMANDS["adminTopupCredits"] = _admin_topup
-COMMANDS["adminGrantPlan"] = _admin_grant_plan
 
 
 def _admin_issue_invoice(self, db, data, rejected=False):
