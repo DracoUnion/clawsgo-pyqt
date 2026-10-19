@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import widgets as w
-from .backend import DEMO_PASSWORD, DEMO_PHONE
+from service import DEMO_PASSWORD, DEMO_PHONE
 from .workers import format_error, submit
 
 _PHONE_RE = re.compile(r"^\d{5,15}$")

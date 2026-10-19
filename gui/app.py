@@ -2,17 +2,23 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication,QDialog,QHBoxLayout,QLabel,QMainWindow,QPushButton,QStackedWidget,QVBoxLayout,QWidget
 from . import theme
-from .backend import ServiceFacade as EmbeddedFacade
+from service import ServiceFacade as EmbeddedFacade
 from .login import LoginWindow
 from .views.home import HomeView
 from .views.chat import ChatView
+from .views.skills import SkillsView
+from .views.hosts import HostsView
+from .views.teams import TeamsView
+from .views.billing import BillingView
+from .views.tickets import TicketsView
+from .views.admin import AdminView
 
-class Placeholder(QWidget):
-    def __init__(self,title,subtitle,facade,user):
-        super().__init__(); lay=QVBoxLayout(self); lay.setContentsMargins(28,24,28,24)
-        h=QLabel(title); h.setObjectName('h1'); lay.addWidget(h)
-        s=QLabel(subtitle); s.setObjectName('muted'); s.setWordWrap(True); lay.addWidget(s)
-        lay.addStretch()
+NAV = [('home','概览'),('chat','会话'),('skills','技能库'),('hosts','主机'),('teams','团队'),
+       ('billing','账单'),('tickets','工单'),('admin','管理后台')]
+
+def _is_admin(user):
+    role = (user or {}).get('role')
+    return role in ('admin','super_admin')
 
 class MainWindow(QMainWindow):
     def __init__(self,facade,user):
@@ -20,12 +26,19 @@ class MainWindow(QMainWindow):
         root=QWidget(); row=QHBoxLayout(root); row.setContentsMargins(0,0,0,0); row.setSpacing(0)
         side=QWidget(); side.setFixedWidth(220); sl=QVBoxLayout(side); sl.setContentsMargins(14,20,14,14)
         brand=QLabel('ClawsGO Science'); brand.setObjectName('h2'); sl.addWidget(brand); sl.addSpacing(16)
-        for key,label in [('home','概览'),('chat','会话'),('skills','技能库'),('hosts','主机'),('teams','团队'),('billing','账单'),('tickets','工单'),('admin','管理后台')]:
-            b=QPushButton(label); b.setObjectName('navButton'); b.clicked.connect(lambda _,k=key:self.navigate(k)); sl.addWidget(b)
+        self._nav_btns={}
+        for key,label in NAV:
+            if key=='admin' and not _is_admin(user): continue
+            b=QPushButton(label); b.setObjectName('navButton'); b.clicked.connect(lambda _,k=key:self.navigate(k)); sl.addWidget(b); self._nav_btns[key]=b
         sl.addStretch(); u=QLabel(user.get('displayName') or user.get('name','')); u.setObjectName('muted'); sl.addWidget(u)
         row.addWidget(side); row.addWidget(self.stack,1); self.setCentralWidget(root)
         self._add('home',HomeView(facade,user,None,self)); self._add('chat',ChatView(facade,user,None,self))
-        for k,l in [('skills','技能库'),('hosts','主机管理'),('teams','团队与成员'),('billing','套餐与账单'),('tickets','客服工单'),('admin','管理后台')]: self._add(k,Placeholder(l,'此页面使用嵌入式 Python 后端命令，完整命令面已保留。',facade,user))
+        self._add('skills',SkillsView(facade,user,None,self))
+        self._add('hosts',HostsView(facade,user,None,self))
+        self._add('teams',TeamsView(facade,user,None,self))
+        self._add('billing',BillingView(facade,user,None,self))
+        self._add('tickets',TicketsView(facade,user,None,self))
+        self._add('admin',AdminView(facade,user,None,self))
         self.navigate('home')
     def _add(self,key,w): self._pages[key]=w; self.stack.addWidget(w)
     def navigate(self,key):

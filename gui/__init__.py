@@ -1,9 +1,9 @@
 """ClawsGo desktop shell.
 
-A PySide6-based desktop UI for the clawsgo app. The backend service is merged
-into this package (``gui.backend``) and called directly, in-process — no HTTP
-server is started. The UI talks to the service through a thin facade
-(``gui.backend.ServiceFacade``).
+A PySide6-based desktop UI for the clawsgo app. The backend service is a
+separate top-level package (``service``) called directly, in-process — no HTTP
+server is started. The UI talks to it through a thin facade
+(``service.ServiceFacade``).
 
 Run it with:
 

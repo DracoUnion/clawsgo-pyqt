@@ -17,7 +17,7 @@ import time
 
 from PySide6.QtCore import QObject, QRunnable, QThread, QThreadPool, Signal, Slot
 
-from .backend import BackendError
+from service import BackendError
 
 
 # --------------------------------------------------------------------------

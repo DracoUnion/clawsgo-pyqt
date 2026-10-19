@@ -1,12 +1,19 @@
 """Embedded ClawsGO service used directly by the desktop shell.
 
 The PySide6 application calls this service in-process. No HTTP server is
-started and no HTTP client is used. The module remains stdlib-only so the
-service can be imported and smoke-tested without Qt.
+started and no HTTP client is used. State is persisted in SQLite via
+SQLAlchemy (see :mod:`service.models`). The module remains importable
+without Qt so the service can be smoke-tested headlessly.
 """
 from __future__ import annotations
 
-from .core import Backend, BackendEphemeral, backend, command_names, dispatch
+from .core import (
+    Backend,
+    BackendEphemeral,
+    backend,
+    command_names,
+    dispatch,
+)
 from .errors import (
     ApiError,
     badRequest,
@@ -53,7 +60,10 @@ class ServiceFacade:
         return self._user
 
     def login_password(self, phone: str, password: str) -> dict:
-        result = self._backend.login_password(phone, password)
+        try:
+            result = self._backend.login_password(phone, password)
+        except ValueError as e:
+            raise BackendError("INVALID_PHONE_NUMBER_OR_PASSWORD", str(e), 400) from e
         self._user = (result or {}).get("user")
         return result
 
@@ -61,12 +71,18 @@ class ServiceFacade:
         return self._backend.request_otp(phone)
 
     def login_otp(self, phone: str, code: str) -> dict:
-        result = self._backend.login_otp(phone, code)
+        try:
+            result = self._backend.login_otp(phone, code)
+        except ValueError as e:
+            raise BackendError("INVALID_OTP", str(e), 400) from e
         self._user = (result or {}).get("user")
         return result
 
     def call(self, command: str, data: dict | None = None) -> dict:
-        return self._backend.call(command, data)
+        try:
+            return self._backend.call(command, data)
+        except ApiError as e:
+            raise BackendError(e.code, e.message, e.status) from e
 
     def close(self) -> None:
         """Keep the facade API compatible; the in-process service has no socket."""

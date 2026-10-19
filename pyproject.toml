@@ -7,7 +7,7 @@ name = "clawsgo-standalone"
 version = "0.1.0"
 description = "Native PySide6 desktop rewrite of the ClawsGO application"
 requires-python = ">=3.10"
-dependencies = ["PySide6>=6.5"]
+dependencies = ["PySide6>=6.5", "sqlalchemy>=2.0"]
 
 [project.scripts]
 clawsgo-standalone = "main:main"
@@ -17,4 +17,4 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gui*"]
+include = ["service*", "gui*"]
