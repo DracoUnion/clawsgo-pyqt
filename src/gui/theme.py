@@ -1,8 +1,9 @@
-"""Dark theme for the ClawsGo desktop shell.
+"""Light · DeepSeek theme for the ClawsGo desktop shell.
 
-One module holds every colour so the UI reads as a single system. The palette is
-a blue-on-ink dark theme tuned to read comfortably against `app/index.html`
-but written from scratch for PySide6 — nothing is copied from the web assets.
+One module holds every colour so the UI reads as a single system. The palette
+tracks the public DeepSeek website (deepseek.com): a warm off-white canvas,
+white cards with hairline borders, near-black primary buttons, and a vivid
+blue brand token — written from scratch for PySide6.
 """
 
 from __future__ import annotations
@@ -11,27 +12,27 @@ from PySide6.QtGui import QColor, QFont
 
 
 # --------------------------------------------------------------------------
-# Palette
+# Palette  (tokens mirror deepseek.com)
 # --------------------------------------------------------------------------
-BG          = "#0d1117"   # window canvas
-SURFACE     = "#131820"   # panel / card
-SURFACE_ALT = "#181f2a"   # hover / elevated
-SURFACE_ACT = "#1d2533"   # pressed / selected
-BORDER      = "#232d3d"   # hairlines
+BG          = "#f9f8f8"   # window canvas  (--ds-color-bg-page)
+SURFACE     = "#ffffff"   # panel / card / input
+SURFACE_ALT = "#f0f1f4"   # hover / elevated / header
+SURFACE_ACT = "#e5e7ea"   # pressed / selected
+BORDER      = "#e0e3e8"   # hairlines
 
-TEXT        = "#e6edf3"
-TEXT_MUTED  = "#8b98a5"
-TEXT_FAINT  = "#5c6773"
+TEXT        = "#1e232c"   # --ds-color-text-primary
+TEXT_MUTED  = "#575e6b"   # ~--ds-color-text-secondary
+TEXT_FAINT  = "#8691a1"   # --ds-color-text-placeholder
 
-ACCENT      = "#3b82f6"
-ACCENT_ALT  = "#2563eb"
-ACCENT_SOFT = "#13294d"
-ACCENT_TEXT = "#7db4ff"
+ACCENT      = "#4d6bfe"   # --ds-color-brand
+ACCENT_ALT  = "#3a65c2"   # --ds-color-brand-deep
+ACCENT_SOFT = "#e9edfd"   # brand tint (@10%)
+ACCENT_TEXT = "#234792"   # --ds-color-text-link-blue
 
-DANGER      = "#f85149"
-SUCCESS     = "#3fb950"
-WARNING     = "#d29922"
-INFO        = "#58a6ff"
+DANGER      = "#e5484d"
+SUCCESS     = "#30a46c"
+WARNING     = "#d9822b"
+INFO        = ACCENT
 
 
 def color(name: str) -> QColor:
@@ -100,18 +101,19 @@ QPushButton {
     padding: 6px 14px;
     color: %(TEXT)s;
 }
-QPushButton:hover    { background: %(SURFACE_ACT)s; border-color: #2e3b52; }
-QPushButton:pressed  { background: #141b26; }
+QPushButton:hover    { background: %(SURFACE_ACT)s; border-color: #c3c9d4; }
+QPushButton:pressed  { background: #e9ebee; }
 QPushButton:disabled { color: %(TEXT_FAINT)s; background: %(SURFACE)s; }
 
 QPushButton#primary {
-    background: %(ACCENT)s;
-    border: 1px solid %(ACCENT_ALT)s;
+    background: #1a1615;
+    border: 1px solid #1a1615;
     color: #ffffff;
     font-weight: 600;
 }
-QPushButton#primary:hover   { background: %(ACCENT_ALT)s; }
-QPushButton#primary:disabled{ background: %(ACCENT_SOFT)s; color: %(TEXT_FAINT)s; }
+QPushButton#primary:hover   { background: #312b28; border-color: #312b28; }
+QPushButton#primary:pressed { background: #110f0e; border-color: #110f0e; }
+QPushButton#primary:disabled{ background: %(SURFACE_ALT)s; border-color: %(BORDER)s; color: %(TEXT_FAINT)s; }
 
 QPushButton#ghost {
     background: transparent;
@@ -123,10 +125,10 @@ QPushButton#ghost:hover { color: %(TEXT)s; background: %(SURFACE_ALT)s; }
 
 QPushButton#danger {
     background: transparent;
-    border: 1px solid rgba(248, 81, 73, 0.4);
+    border: 1px solid rgba(229, 72, 77, 0.4);
     color: %(DANGER)s;
 }
-QPushButton#danger:hover { background: rgba(248, 81, 73, 0.12); }
+QPushButton#danger:hover { background: rgba(229, 72, 77, 0.08); }
 
 QPushButton#navButton {
     text-align: left;
@@ -193,14 +195,14 @@ QHeaderView::section {
 }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical {
-    background: #2b3547; border-radius: 5px; min-height: 28px;
+    background: #c9ced7; border-radius: 5px; min-height: 28px;
 }
-QScrollBar::handle:vertical:hover { background: #37445c; }
+QScrollBar::handle:vertical:hover { background: #aab3c0; }
 QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px; }
 QScrollBar::handle:horizontal {
-    background: #2b3547; border-radius: 5px; min-width: 28px;
+    background: #c9ced7; border-radius: 5px; min-width: 28px;
 }
-QScrollBar::handle:horizontal:hover { background: #37445c; }
+QScrollBar::handle:horizontal:hover { background: #aab3c0; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
@@ -246,9 +248,9 @@ QScrollArea > QWidget > QWidget { background: transparent; }
 
 /* ---------- tooltips ---------- */
 QToolTip {
-    background: %(SURFACE_ACT)s;
+    background: %(SURFACE)s;
     color: %(TEXT)s;
-    border: 1px solid %(BORDER)s;
+    border: 1px solid #c3c9d4;
     border-radius: 5px;
     padding: 4px 8px;
 }
