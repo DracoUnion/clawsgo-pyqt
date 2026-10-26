@@ -23,8 +23,12 @@ from . import models as m
 from . import plans as P
 from . import shapes as S
 from .errors import ApiError, badRequest, conflict, forbidden, need, notFound, req
+from .llm import OpenAIClient, client_from_env, chat_model
 from .models import create_all
 from .seed import seed as _seed_all
+
+# 未显式传入 llm 时按环境变量自动装配（见 service.llm）
+_LLM_AUTO = object()
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 DATA = Path(os.environ.get("CLAWSGO_DATA_DIR", ROOT / "data"))
@@ -94,7 +98,7 @@ _WORKSPACE_TREE = {
 class Backend:
     """In-process backend backed by SQLite. One instance per app lifetime."""
 
-    def __init__(self, url=None):
+    def __init__(self, url=None, llm=_LLM_AUTO):
         self.lock = threading.RLock()
         self._engine = create_engine(
             url or f"sqlite:///{DATA / 'backend.db'}",
@@ -104,6 +108,10 @@ class Backend:
         self._Session = sessionmaker(bind=self._engine, autoflush=True)
         self.user = None  # active identity (auto-activated as admin on boot)
         self.token = None
+        # 所有 LLM 调用统一走 OpenAIClient（未配置 API Key 时为 None，sendMessage 回落演示回复）
+        self.llm: OpenAIClient | None = (
+            client_from_env() if llm is _LLM_AUTO else llm
+        )
         self._seed_if_empty()
         self._activate_admin()
 
@@ -471,6 +479,33 @@ def _demo_assistant_parts(text):
     ]
 
 
+def _llm_assistant_parts(text):
+    """OpenAIClient 返回的纯文本回复 → 消息 parts。"""
+    return [{"type": "text", "text": text}]
+
+
+def _llm_messages_from_history(db, cid, new_text):
+    """把会话历史 + 新提问折叠成 role/content 消息列表（供 OpenAIClient）。"""
+    msgs = []
+    for x in db.query(m.Message).filter_by(conversationId=cid).order_by(m.Message.seq.asc()).all():
+        body = "".join(
+            p.get("text", "") for p in (x.parts or [])
+            if isinstance(p, dict) and p.get("type") == "text"
+        ).strip()
+        if not body:
+            continue
+        msgs.append({"role": x.role, "content": body})
+    msgs.append({"role": "user", "content": str(new_text)})
+    return msgs
+
+
+def _chat_model(model_id):
+    """解析实际对话模型：占位模型名落到 OPENAI_CHAT_MODEL / 默认值。"""
+    if model_id in ("clawsgo-1.0-lithium", "clawsgo-1.0", "clawsgo", "", None):
+        return chat_model()
+    return model_id
+
+
 @_cmd("sendMessage")
 def c_send_message(self, db, data):
     cid = data.get("conversationId") or rid("c")
@@ -489,13 +524,23 @@ def c_send_message(self, db, data):
         db.add(conv)
     text = str(data.get("text", ""))
     seq = db.query(m.Message).filter_by(conversationId=cid).count()
+    # 折叠会话历史（不含本次新提问）：须在 db.add(um) 之前执行，
+    # 否则 session autoflush 会把新提问混入历史查询造成重复。
+    msgs = _llm_messages_from_history(db, cid, text) if self.llm is not None else None
     um = m.Message(id=data.get("messageId") or rid("m"), conversationId=cid,
                    role="user", seq=seq + 1, modelId=None, context=None,
                    parts=[{"type": "text", "text": text}], streamId=None, meta=None,
                    createdAt=t)
+    db.add(um)
+    if self.llm is not None:
+        # 所有 LLM 调用统一走 OpenAIClient
+        ans = self.llm.call_llm_retry(msgs, _chat_model(conv.modelId), retry=3, temp=0.7)
+        am_parts = _llm_assistant_parts(ans)
+    else:
+        am_parts = _demo_assistant_parts(text)
     am = m.Message(id=data.get("assistantMessageId") or rid("m"), conversationId=cid,
                    role="assistant", seq=seq + 2, modelId=conv.modelId, context=conv.context,
-                   parts=_demo_assistant_parts(text), streamId="stream_" + rid(20),
+                   parts=am_parts, streamId="stream_" + rid(20),
                    meta={"modelId": conv.modelId, "effort": conv.effort, "mode": conv.mode},
                    createdAt=t)
     db.add_all([um, am])

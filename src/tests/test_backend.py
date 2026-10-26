@@ -1,21 +1,28 @@
 """Basic contract and backend smoke tests for the standalone build."""
 from __future__ import annotations
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
 import unittest
+from unittest import mock
 
 SRC = Path(__file__).resolve().parents[1]
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SRC))
 from service import Backend, command_names  # noqa: E402
+from service.llm import OpenAIClient, chat_model, client_from_env  # noqa: E402
 
 
-def _fresh() -> Backend:
-    """A backend on its own temp SQLite file so tests never contaminate each other."""
+def _fresh(llm=None) -> Backend:
+    """A backend on its own temp SQLite file so tests never contaminate each other.
+
+    ``llm=None`` keeps every backend test offline/deterministic: sendMessage falls
+    back to the demo assistant instead of hitting the configured LLM endpoint.
+    """
     tmp = tempfile.mkdtemp()
-    return Backend(url=f"sqlite:///{tmp}/test.db")
+    return Backend(url=f"sqlite:///{tmp}/test.db", llm=llm)
 
 
 class BackendSmokeTests(unittest.TestCase):
@@ -36,6 +43,60 @@ class BackendSmokeTests(unittest.TestCase):
         sent = backend.call('sendMessage', {'conversationId': 'c_demo', 'text': 'hello'})
         self.assertEqual(sent['assistantMessage']['role'], 'assistant')
         self.assertTrue(sent['assistantMessage']['parts'])
+
+    # ------------------------------------------------------------------
+    # LLM 调用统一走 OpenAIClient
+    # ------------------------------------------------------------------
+    def test_send_message_demo_fallback_without_client(self):
+        backend = _fresh()  # llm=None → 未配置客户端时回落演示回复
+        sent = backend.call('sendMessage', {'conversationId': 'c_demo2', 'text': 'hi'})
+        text = "".join(p.get("text", "") for p in sent['assistantMessage']['parts']
+                       if p.get("type") == "text")
+        self.assertIn("演示智能体", text)
+
+    def test_send_message_routes_through_openai_client(self):
+        class FakeLLM(OpenAIClient):
+            def __init__(self):
+                super().__init__(api_key="k", base_url="http://127.0.0.1:9")
+                self.calls = []
+
+            def call_llm_retry(self, msgs, model_name, **kw):
+                self.calls.append((list(msgs), model_name, kw))
+                return "这是来自假 LLM 的回复"
+
+        fake = FakeLLM()
+        backend = _fresh(llm=fake)
+        sent = backend.call('sendMessage', {'conversationId': 'c_llm', 'text': '你好'})
+        text = "".join(p.get("text", "") for p in sent['assistantMessage']['parts']
+                       if p.get("type") == "text")
+        self.assertIn("这是来自假 LLM 的回复", text)
+        self.assertEqual(len(fake.calls), 1)
+        msgs, model, kw = fake.calls[0]
+        user_msgs = [x for x in msgs if x["role"] == "user"]
+        self.assertEqual(len(user_msgs), 1, "会话历史不应混入/重复本次新提问")
+        self.assertEqual(user_msgs[-1], {"role": "user", "content": "你好"})
+        # 占位模型名 clawsgo-1.0-lithium 应解析到 OPENAI_CHAT_MODEL / 默认值
+        self.assertNotEqual(model, "clawsgo-1.0-lithium")
+
+        # 第二轮应携带第一轮的历史（含助手回复），且各消息只出现一次
+        backend.call('sendMessage', {'conversationId': 'c_llm', 'text': '再来'})
+        self.assertEqual(len(fake.calls), 2)
+        contents = [x["content"] for x in fake.calls[1][0]]
+        self.assertEqual(contents.count("这是来自假 LLM 的回复"), 1)
+        self.assertEqual(contents.count("再来"), 1)
+
+    def test_client_from_env(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(client_from_env())
+            self.assertEqual(chat_model(), "gpt-3.5-turbo")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ["OPENAI_API_KEY"] = "sk-test"
+            os.environ["OPENAI_BASE_URL"] = "http://127.0.0.1:9/v1"
+            os.environ["OPENAI_CHAT_MODEL"] = "glm-4-flash"
+            cli = client_from_env()
+            self.assertIsInstance(cli, OpenAIClient)
+            self.assertEqual(cli.api_key, "sk-test")
+            self.assertEqual(chat_model(), "glm-4-flash")
 
     def test_admin_profile(self):
         backend = _fresh()
