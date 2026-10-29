@@ -31,6 +31,17 @@ from .errors import (
 )
 
 
+def _default_backend():
+    """Return the module-level singleton backend (compat default).
+
+    ``bootstrap.build_context`` injects a fresh backend instead, which lets
+    tests point it at a temp SQLite file without mutating the singleton.
+    """
+    from .core import backend
+
+    return backend
+
+
 class BackendError(Exception):
     """A backend failure with the shape expected by the GUI workers."""
 
@@ -42,13 +53,18 @@ class BackendError(Exception):
 
 
 class ServiceFacade:
-    """Thin in-process facade over the shared embedded service."""
+    """Thin in-process facade over the embedded service.
+
+    The backend is injected by :func:`bootstrap.build_context`. When no
+    backend is passed, the module-level singleton is used (kept for
+    backward compatibility with scripts that import the facade directly).
+    """
 
     name = "embedded"
     is_mock = False
 
-    def __init__(self) -> None:
-        self._backend = backend
+    def __init__(self, backend=None) -> None:
+        self._backend = backend if backend is not None else _default_backend()
         self._user: dict | None = None
 
     @property

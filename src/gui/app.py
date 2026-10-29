@@ -2,7 +2,6 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication,QHBoxLayout,QLabel,QMainWindow,QPushButton,QStackedWidget,QVBoxLayout,QWidget
 from . import theme
-from service import ServiceFacade as EmbeddedFacade
 from .views.home import HomeView
 from .views.chat import ChatView
 from .views.skills import SkillsView
@@ -44,9 +43,29 @@ class MainWindow(QMainWindow):
         w=self._pages.get(key);
         if w is not None: self.stack.setCurrentWidget(w); getattr(w,'on_show',lambda:None)()
 
-def launch():
-    app=QApplication.instance() or QApplication([]); theme.apply_theme(app); facade=EmbeddedFacade(); holder={}
-    user=facade.user or {'role':'super_admin','name':'平台管理员'}; win=MainWindow(facade,user); holder['win']=win; win.show(); return app,win,holder
+def launch(ctx=None):
+    """Launch the desktop shell.
+
+    ``ctx`` may be supplied by :func:`bootstrap.build_context` (tests pass a
+    temp-db context). When omitted, one is built here so the app stays
+    runnable from ``python src/main.py``.
+    """
+    if ctx is None:
+        from bootstrap import build_context
+
+        ctx = build_context()
+    app = QApplication.instance() or QApplication([])
+    theme.apply_theme(app)
+    facade = ctx.services
+    assert facade is not None
+    holder = {}
+    user = facade.user or {'role': 'super_admin', 'name': '平台管理员'}
+    win = MainWindow(facade, user)
+    win.ctx = ctx  # surfaces the service graph / task manager to pages
+    holder['win'] = win
+    holder['ctx'] = ctx
+    win.show()
+    return app, win, holder
 
 if __name__=='__main__':
     app,_,_=launch(); raise SystemExit(app.exec())
